@@ -20,7 +20,7 @@ output "ilb" {
 output "vms" {
   value = "${
     map(
-      "name", "${azurerm_virtual_machine.vms.*.name}",
+      "name", "${concat(azurerm_virtual_machine.vms.*.name, azurerm_virtual_machine.vms_with.*.name)}",
       "ip_address", "${azurerm_network_interface.nics.*.private_ip_address}",
     )
   }"

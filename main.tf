@@ -35,6 +35,40 @@ resource "azurerm_lb_backend_address_pool" "lb_bepool" {
   loadbalancer_id = "${join("", azurerm_lb.lb.*.id)}"
 }
 
+resource "azurerm_lb_probe" "lb_probes" {
+  count = "${var.lb["required"] ? length(var.lb_probes) : 0}"
+
+  resource_group_name = "${var.compute["resource_group_name"]}"
+  loadbalancer_id     = "${azurerm_lb.lb.id}"
+
+  name         = "${lookup(var.lb_probes[count.index], "name")}"
+  protocol     = "${lookup(var.lb_probes[count.index], "protocol", "Tcp")}"
+  port         = "${lookup(var.lb_probes[count.index], "port")}"
+  request_path = "${lookup(var.lb_probes[count.index], "request_path", "")}"
+
+  interval_in_seconds = "${lookup(var.lb_probes[count.index], "interval_in_seconds", "15")}"
+  number_of_probes    = "${lookup(var.lb_probes[count.index], "number_of_probes", "2")}"
+}
+
+resource "azurerm_lb_rule" "lb_rules" {
+  count = "${var.lb["required"] ? length(var.lb_rules) : 0}"
+
+  resource_group_name            = "${var.compute["resource_group_name"]}"
+  loadbalancer_id                = "${azurerm_lb.lb.id}"
+  frontend_ip_configuration_name = "${lookup(azurerm_lb.lb.frontend_ip_configuration[0], "name")}"
+  backend_address_pool_id        = "${azurerm_lb_backend_address_pool.lb_bepool.id}"
+
+  probe_id = "${element(azurerm_lb_probe.lb_probes.*.id, lookup(var.lb_rules[count.index], "probe_index", 0))}"
+
+  name          = "${lookup(var.lb_rules[count.index], "name")}"
+  protocol      = "${lookup(var.lb_rules[count.index], "protocol", "Tcp")}"
+  frontend_port = "${lookup(var.lb_rules[count.index], "frontend_port")}"
+  backend_port  = "${lookup(var.lb_rules[count.index], "backend_port")}"
+
+  idle_timeout_in_minutes = "${lookup(var.lb_rules[count.index], "idle_timeout_in_minutes", "4")}"
+  load_distribution       = "${lookup(var.lb_rules[count.index], "load_distribution", "Default")}"
+}
+
 # ilb
 data "azurerm_subnet" "ilb_subnet" {
   count = "${var.ilb["required"] ? 1 : 0}"
@@ -70,6 +104,40 @@ resource "azurerm_lb_backend_address_pool" "ilb_bepool" {
   loadbalancer_id = "${join("", azurerm_lb.ilb.*.id)}"
 }
 
+resource "azurerm_lb_probe" "ilb_probes" {
+  count = "${var.ilb["required"] ? length(var.ilb_probes) : 0}"
+
+  resource_group_name = "${var.compute["resource_group_name"]}"
+  loadbalancer_id     = "${azurerm_lb.ilb.id}"
+
+  name         = "${lookup(var.ilb_probes[count.index], "name")}"
+  protocol     = "${lookup(var.ilb_probes[count.index], "protocol", "Tcp")}"
+  port         = "${lookup(var.ilb_probes[count.index], "port")}"
+  request_path = "${lookup(var.ilb_probes[count.index], "request_path", "")}"
+
+  interval_in_seconds = "${lookup(var.ilb_probes[count.index], "interval_in_seconds", "15")}"
+  number_of_probes    = "${lookup(var.ilb_probes[count.index], "number_of_probes", "2")}"
+}
+
+resource "azurerm_lb_rule" "ilb_rules" {
+  count = "${var.ilb["required"] ? length(var.ilb_rules) : 0}"
+
+  resource_group_name            = "${var.compute["resource_group_name"]}"
+  loadbalancer_id                = "${azurerm_lb.ilb.id}"
+  frontend_ip_configuration_name = "${lookup(azurerm_lb.ilb.frontend_ip_configuration[0], "name")}"
+  backend_address_pool_id        = "${azurerm_lb_backend_address_pool.ilb_bepool.id}"
+
+  probe_id = "${element(azurerm_lb_probe.ilb_probes.*.id, lookup(var.ilb_rules[count.index], "probe_index", 0))}"
+
+  name          = "${lookup(var.ilb_rules[count.index], "name")}"
+  protocol      = "${lookup(var.ilb_rules[count.index], "protocol", "Tcp")}"
+  frontend_port = "${lookup(var.ilb_rules[count.index], "frontend_port")}"
+  backend_port  = "${lookup(var.ilb_rules[count.index], "backend_port")}"
+
+  idle_timeout_in_minutes = "${lookup(var.ilb_rules[count.index], "idle_timeout_in_minutes", "4")}"
+  load_distribution       = "${lookup(var.ilb_rules[count.index], "load_distribution", "Default")}"
+}
+
 # virtual_machine
 locals {
   vm_name_format = "${var.compute["name"]}-%02d"
@@ -101,7 +169,7 @@ data "azurerm_image" "image" {
 }
 
 resource "azurerm_virtual_machine" "vms" {
-  count = "${length(var.computes)}"
+  count = "${var.compute["data_disk_required"] ? 0 : length(var.computes)}"
 
   resource_group_name = "${var.compute["resource_group_name"]}"
 
@@ -130,7 +198,7 @@ resource "azurerm_virtual_machine" "vms" {
     disk_size_gb      = "${lookup(var.computes[count.index], "os_disk_size_gb", var.compute["os_disk_size_gb"])}"
   }
 
-  delete_os_disk_on_termination = "${lookup(var.computes[count.index], "os_disk_on_termination", var.compute["os_disk_on_termination"])}"
+  delete_os_disk_on_termination = "${lookup(var.computes[count.index], "delete_os_disk_on_termination", var.compute["delete_os_disk_on_termination"])}"
 
   storage_image_reference {
     id        = "${local.disk_type == "image" ? "${join("", data.azurerm_image.image.*.id)}" : ""}"
@@ -147,11 +215,67 @@ resource "azurerm_virtual_machine" "vms" {
     enabled     = "${var.compute["boot_diagnostics_enabled"] ? lookup(var.computes[count.index], "boot_diagnostics_enabled", var.compute["boot_diagnostics_enabled"]) : false}"
     storage_uri = "${join("", data.azurerm_storage_account.storage_account.*.primary_blob_endpoint)}"
   }
+}
 
-  depends_on = [
-    "azurerm_network_interface.nics",
-    "azurerm_availability_set.avset",
-  ]
+resource "azurerm_virtual_machine" "vms_with" {
+  count = "${var.compute["data_disk_required"] ? length(var.computes) : 0}"
+
+  resource_group_name = "${var.compute["resource_group_name"]}"
+
+  name     = "${lookup(var.computes[count.index], "name", format(local.vm_name_format, count.index + 1))}"
+  location = "${lookup(var.computes[count.index], "location", var.compute["location"])}"
+  vm_size  = "${lookup(var.computes[count.index], "vm_size", var.compute["vm_size"])}"
+
+  os_profile {
+    computer_name  = "${lookup(var.computes[count.index], "computer_name", format(local.vm_name_format, count.index + 1))}"
+    admin_username = "${lookup(var.computes[count.index], "admin_username", var.compute["admin_username"])}"
+    admin_password = "${lookup(var.computes[count.index], "admin_password", var.compute["admin_password"])}"
+  }
+
+  os_profile_windows_config {
+    provision_vm_agent = true
+  }
+
+  storage_os_disk {
+    name = "${lookup(var.computes[count.index], "name", format(local.vm_name_format, count.index + 1))}-os-disk"
+
+    os_type       = "Windows"
+    caching       = "ReadWrite"
+    create_option = "FromImage"
+
+    managed_disk_type = "${lookup(var.computes[count.index], "os_disk_type", var.compute["os_disk_type"])}"
+    disk_size_gb      = "${lookup(var.computes[count.index], "os_disk_size_gb", var.compute["os_disk_size_gb"])}"
+  }
+
+  storage_data_disk {
+    name = "${lookup(var.computes[count.index], "name", format(local.vm_name_format, count.index + 1))}-data-disk"
+
+    lun = 0
+
+    disk_size_gb = "${lookup(var.computes[count.index], "data_disk_size_gb", lookup(var.compute, "data_disk_size_gb", ""))}"
+
+    caching       = "ReadWrite"
+    create_option = "Empty"
+  }
+
+  delete_os_disk_on_termination    = "${lookup(var.computes[count.index], "delete_os_disk_on_termination", var.compute["delete_os_disk_on_termination"])}"
+  delete_data_disks_on_termination = "${lookup(var.computes[count.index], "delete_data_disks_on_termination", var.compute["delete_data_disks_on_termination"])}"
+
+  storage_image_reference {
+    id        = "${local.disk_type == "image" ? "${join("", data.azurerm_image.image.*.id)}" : ""}"
+    publisher = "${local.disk_type == "platform_image" ? var.platform_image["publisher"] : ""}"
+    offer     = "${local.disk_type == "platform_image" ? var.platform_image["offer"] : ""}"
+    sku       = "${local.disk_type == "platform_image" ? var.platform_image["sku"] : ""}"
+    version   = "${local.disk_type == "platform_image" ? var.platform_image["version"] : ""}"
+  }
+
+  network_interface_ids = ["${element(azurerm_network_interface.nics.*.id, count.index)}"]
+  availability_set_id   = "${local.avset_required ? "${join("", azurerm_availability_set.avset.*.id)}" : ""}"
+
+  boot_diagnostics {
+    enabled     = "${var.compute["boot_diagnostics_enabled"] ? lookup(var.computes[count.index], "boot_diagnostics_enabled", var.compute["boot_diagnostics_enabled"]) : false}"
+    storage_uri = "${join("", data.azurerm_storage_account.storage_account.*.primary_blob_endpoint)}"
+  }
 }
 
 resource "azurerm_network_interface" "nics" {

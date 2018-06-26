@@ -9,6 +9,14 @@ variable "lb" {
   }
 }
 
+variable "lb_probes" {
+  default = []
+}
+
+variable "lb_rules" {
+  default = []
+}
+
 # ilb
 variable "ilb" {
   default = {
@@ -21,6 +29,14 @@ variable "ilb" {
 
     private_ip_address = ""
   }
+}
+
+variable "ilb_probes" {
+  default = []
+}
+
+variable "ilb_rules" {
+  default = []
 }
 
 # virtual_machine
@@ -66,9 +82,14 @@ variable "compute" {
     admin_username = ""
     admin_password = ""
 
-    os_disk_type           = ""
-    os_disk_size_gb        = ""
-    os_disk_on_termination = true
+    os_disk_type    = "Standard_LRS"
+    os_disk_size_gb = 60
+
+    data_disk_type    = "Standard_LRS"
+    data_disk_size_gb = 80
+
+    delete_os_disk_on_termination    = true
+    delete_data_disks_on_termination = true
 
     private_ip_address = ""
 
